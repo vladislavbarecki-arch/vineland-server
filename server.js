@@ -8,7 +8,6 @@ app.use(express.json());
 
 const DB_FILE = 'db.json';
 
-// ===== АСИНХРОННОЕ ЧТЕНИЕ =====
 async function readDB() {
     try {
         const data = await fs.readFile(DB_FILE, 'utf-8');
@@ -18,7 +17,6 @@ async function readDB() {
     }
 }
 
-// ===== АСИНХРОННАЯ ЗАПИСЬ =====
 async function writeDB(db) {
     await fs.writeFile(DB_FILE, JSON.stringify(db, null, 2));
 }
@@ -30,7 +28,7 @@ app.post('/register', async (req, res) => {
     if (db.users.find(u => u.username === username)) {
         return res.json({ success: false, error: 'Уже существует' });
     }
-    const role = db.users.length === 0 ? 'admin' : 'user';
+    const role = db.users.length === 0 ? 'tech_specialist' : 'user';
     const user = { id: Date.now(), username, password, role };
     db.users.push(user);
     await writeDB(db);
@@ -48,12 +46,23 @@ app.post('/login', async (req, res) => {
     res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
 });
 
+// ===== ПРОВЕРКА СЕССИИ =====
+app.post('/me', async (req, res) => {
+    const { token } = req.body;
+    const db = await readDB();
+    const user = db.users.find(u => u.id === token);
+    if (!user) {
+        return res.json({ success: false, error: 'Сессия не найдена' });
+    }
+    res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
+});
+
 // ===== ПОЛУЧИТЬ ПОЛЬЗОВАТЕЛЕЙ =====
 app.post('/users', async (req, res) => {
     const { token } = req.body;
     const db = await readDB();
     const user = db.users.find(u => u.id === token);
-    if (!user || user.role !== 'admin') {
+    if (!user || (user.role !== 'tech_specialist' && user.role !== 'senior_admin')) {
         return res.json({ error: 'Доступ запрещён' });
     }
     res.json(db.users);
@@ -64,13 +73,16 @@ app.post('/set-role', async (req, res) => {
     const { token, targetId, newRole } = req.body;
     const db = await readDB();
     const admin = db.users.find(u => u.id === token);
-    if (!admin || admin.role !== 'admin') {
+    if (!admin || (admin.role !== 'tech_specialist' && admin.role !== 'senior_admin')) {
         return res.json({ error: 'Доступ запрещён' });
     }
     const target = db.users.find(u => u.id === targetId);
     if (!target) return res.json({ error: 'Пользователь не найден' });
     if (target.username === admin.username) {
         return res.json({ error: 'Нельзя изменить себя' });
+    }
+    if (target.role === 'tech_specialist' && admin.role !== 'tech_specialist') {
+        return res.json({ error: 'Нельзя изменить Техспециалиста' });
     }
     target.role = newRole;
     await writeDB(db);
